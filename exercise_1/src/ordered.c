@@ -1,14 +1,14 @@
-#include "ordered_evolution.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <omp.h>
 #include <mpi.h>
+
 #include "read_write_pgm.h"
 
 #define ALIVE 255
 #define DEAD 0
 
-void ordered_evolution(unsigned char *playground, int width, int block_height, int tot_steps, int snap_step) {
+void ordered_evolution(unsigned char *playground, int width, int height, int block_height, int tot_steps, int snap_step) {
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
@@ -36,12 +36,14 @@ void ordered_evolution(unsigned char *playground, int width, int block_height, i
 
     for (int step = 0; step < tot_steps; step++) {
 
-        MPI_Irecv(halo_row_top, width, MPI_UNSIGNED_CHAR, neighbor_top, 0, MPI_COMM_WORLD, &requests[0]);
-        MPI_Irecv(halo_row_bottom, width, MPI_UNSIGNED_CHAR, neighbor_bottom, 1, MPI_COMM_WORLD, &requests[1]);
-        MPI_Isend(playground, width, MPI_UNSIGNED_CHAR, neighbor_top, 1, MPI_COMM_WORLD, &requests[2]);
-        MPI_Isend(playground + (block_height - 1) * width, width, MPI_UNSIGNED_CHAR, neighbor_bottom, 0, MPI_COMM_WORLD, &requests[3]);
+        if (size > 1) {
+            MPI_Irecv(halo_row_top, width, MPI_UNSIGNED_CHAR, neighbor_top, 0, MPI_COMM_WORLD, &requests[0]);
+            MPI_Irecv(halo_row_bottom, width, MPI_UNSIGNED_CHAR, neighbor_bottom, 1, MPI_COMM_WORLD, &requests[1]);
+            MPI_Isend(playground, width, MPI_UNSIGNED_CHAR, neighbor_top, 1, MPI_COMM_WORLD, &requests[2]);
+            MPI_Isend(playground + (block_height - 1) * width, width, MPI_UNSIGNED_CHAR, neighbor_bottom, 0, MPI_COMM_WORLD, &requests[3]);
 
-        MPI_Waitall(4, requests, MPI_STATUSES_IGNORE);
+            MPI_Waitall(4, requests, MPI_STATUSES_IGNORE);
+        }
 
         for (int mpi_order = 0; mpi_order < size; mpi_order++) {
             if (mpi_order == rank) {
@@ -85,7 +87,7 @@ void ordered_evolution(unsigned char *playground, int width, int block_height, i
 
         // Save snapshot if needed
         if (snap_step > 0 && step % snap_step == 0) {
-            save_snapshot(playground, width, block_height, step, rank);
+            save_snapshot(playground, width, height, block_height, step, rank);
         }
 
         if (rank == 0 && step % 100 == 0) {
@@ -95,7 +97,7 @@ void ordered_evolution(unsigned char *playground, int width, int block_height, i
 
     // Final snapshot
     if (snap_step == 0 || tot_steps % snap_step != 0) {
-        save_snapshot(playground, width, block_height, tot_steps, rank);
+        save_snapshot(playground, width, height, block_height, tot_steps, rank);
     }
 
     free(row_buffer);

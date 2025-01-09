@@ -1,14 +1,14 @@
-#include "static_evolution.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <omp.h>
 #include <mpi.h>
+
 #include "read_write_pgm.h"
 
 #define ALIVE 255
 #define DEAD 0
 
-void static_evolution(unsigned char *playground, int width, int block_height, int tot_steps, int snap_step) {
+void static_evolution(unsigned char *playground, int width, int height, int block_height, int tot_steps, int snap_step) {
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
@@ -84,7 +84,7 @@ void static_evolution(unsigned char *playground, int width, int block_height, in
 
         // Save snapshot if needed
         if (snap_step > 0 && step % snap_step == 0) {
-            save_snapshot(playground, width, block_height, step, rank);
+            save_snapshot(playground, width, height, block_height, step, rank);
         }
 
         if (rank == 0 && step % 100 == 0) {
@@ -94,7 +94,7 @@ void static_evolution(unsigned char *playground, int width, int block_height, in
 
     // Final snapshot
     if (snap_step == 0 || tot_steps % snap_step != 0) {
-        save_snapshot(playground, width, block_height, tot_steps, rank);
+        save_snapshot(playground, width, height, block_height, tot_steps, rank);
     }
 
     free(row_buffer);

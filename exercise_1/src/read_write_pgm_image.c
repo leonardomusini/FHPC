@@ -137,12 +137,44 @@ void read_pgm_image( void **image, int *maxval, int *xsize, int *ysize, const ch
 
 
 // Function to save a snapshot
-void save_snapshot(unsigned char *playground, int width, int block_height, int step, int rank) {
-    char snapshot_filename[256];
-    snprintf(snapshot_filename, sizeof(snapshot_filename), "snapshot_%05d.pgm", step);
-    write_pgm_image(playground, 255, width, block_height, snapshot_filename);
+void save_snapshot(unsigned char *local_playground, int width, int height, int block_height, int step, int rank, int size) {
+    unsigned char *global_playground = NULL;
+    int *recvcounts = NULL;
+    int *displs = NULL;
+
+    if (size == 1) {
+        // Single MPI task: save directly
+        char snapshot_filename[256];
+        snprintf(snapshot_filename, sizeof(snapshot_filename), "snapshot_%05d.pgm", step);
+        write_pgm_image(local_playground, 255, width, height, snapshot_filename);
+        printf("Global snapshot saved: %s\n", snapshot_filename);
+        return;
+    }
 
     if (rank == 0) {
-        printf("Snapshot saved: %s\n", snapshot_filename);
+        global_playground = (unsigned char *)malloc(width * height * sizeof(unsigned char));
+        recvcounts = (int *)malloc(size * sizeof(int));
+        displs = (int *)malloc(size * sizeof(int));
+
+        // Calculate receive counts and displacements
+        for (int i = 0; i < size; i++) {
+            int block_h = height / size + (i < height % size);
+            recvcounts[i] = block_h * width;
+            displs[i] = (i == 0) ? 0 : displs[i - 1] + recvcounts[i - 1];
+        }
+    }
+
+    MPI_Gatherv(local_playground, block_height * width, MPI_UNSIGNED_CHAR,
+                global_playground, recvcounts, displs, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+
+    if (rank == 0) {
+        char snapshot_filename[256];
+        snprintf(snapshot_filename, sizeof(snapshot_filename), "snapshot_%05d.pgm", step);
+        write_pgm_image(global_playground, 255, width, height, snapshot_filename);
+        printf("Global snapshot saved: %s\n", snapshot_filename);
+
+        free(global_playground);
+        free(recvcounts);
+        free(displs);
     }
 }
