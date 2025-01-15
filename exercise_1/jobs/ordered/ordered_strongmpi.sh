@@ -43,8 +43,8 @@ for size in "${playground_sizes[@]}"; do
             echo "$size,$task,$runtime,$mean_time" >> $csv
         done
     done
-done
 
-rm -f "playground_*.pgm"
+    rm -f "playground_${size}.pgm"
+done
 
 module purge

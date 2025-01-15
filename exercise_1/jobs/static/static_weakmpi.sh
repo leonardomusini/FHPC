@@ -42,8 +42,8 @@ for task in $(seq 1 8) ; do
 
         echo "$size,$task,$runtime,$mean_time" >> $csv
     done
-done
 
-rm -f "playground_*.pgm"
+    rm -f "playground_${size}.pgm"
+done
 
 module purge
