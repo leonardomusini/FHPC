@@ -1,48 +1,53 @@
 #!/bin/bash
 #SBATCH --job-name=Weak_Scalability
 #SBATCH --partition=THIN
-#SBATCH --nodes=4                    # Use up to 4 nodes
-#SBATCH --ntasks-per-node=2          # 1 MPI task per socket
-#SBATCH --cpus-per-task=12           # Number of cores per socket
-#SBATCH --time=02:00:00              # Adjust as needed
+#SBATCH --account=dssc
+#SBATCH --nodes=4                    
+#SBATCH --ntasks-per-socket=1    
+#SBATCH --cpus-per-task=12                      
+#SBATCH --time=02:00:00                
+#SBATCH --exclusive
 #SBATCH --output=weak_scalability.out
 
 module load openMPI/4.1.6/gnu/14.2.1
 
+exec_dir="/u/dssc/lmusini/FHPC/exercise_1"
+output_dir="$exec_dir/data/static"
+
+srun $exec_dir make clean
+srun  make -C $exec_dir 
+
+csv="$output_dir/static_weakmpi_results_10.csv"
+echo "playground_size,mpi_task,runtime,mean_time" > $csv
+
 # OpenMP settings
 export OMP_PLACES=cores
 export OMP_PROC_BIND=close
+export OMP_NUM_THREADS=12
 
-# Initial matrix size
-initial_size=5000
-# Number of evolution steps
-n=100            
-# Snapshot frequency (set to 0 for snapshot only at the end)
-s=0    
-# Evolution type: 0 for ordered, 1 for static        
-e=1
+playground_sizes=(10000 14142 17320 20000 22360 24494 26458 28284)
+#playground_sizes=(5000 7071 8660 10000 11180 12247 13228 14142)       # Playground sizes
+n=50                                        # Number of evolution steps
+s=0                                         # Snapshot frequency (set to 0 for snapshot only at the end)
+e=1                                         # Evolution type: 0 for ordered, 1 for static
 
-# Output CSV file
-csv="ordered_weak_results.csv"
-echo "mpi_tasks,new_size,runtime,mean_time" > $csv
 
-# Loop over number of MPI tasks
-for mpi_tasks in 1 2 4 8 16; do
-    # Calculate matrix size (square) to keep workload per task constant
-    new_size=$((initial_size * sqrt(mpi_tasks)))
+for task in $(seq 1 8) ; do
+  
+    size=${playground_sizes[$((task - 1))]}
 
-    # Initialize the matrix
-    mpirun --map-by socket --bind-to socket -np 1 ./main.x -i -k $new_size -f "playground_${new_size}.pgm"
+    mpirun --map-by socket --bind-to socket -np 1 $exec_dir/main.x -i -k $size -f "playground_${size}.pgm"
 
-    # Run the program and capture output
-    output=$(mpirun --map-by socket --bind-to socket -np $mpi_tasks ./main.x -r -f "playground_${new_size}.pgm" -e $evolution_type -n $nsteps -s $snap_freq)
+    for run in $(seq 1 5); do
+        output=$(mpirun --map-by socket --bind-to socket -np $task $exec_dir/main.x -r -f "playground_${size}.pgm" -e $e -n $n -s $s)
 
-    # Extract runtime and mean_time
-    runtime=$(echo "$output" | grep -o 'Runtime: [0-9.]*' | cut -d' ' -f2)
-    mean_time=$(echo "$output" | grep -o 'Mean_Time: [0-9.]*' | cut -d' ' -f2)
+        runtime=$(echo "$output" | grep -o 'Runtime: [0-9.]*' | cut -d' ' -f2)
+        mean_time=$(echo "$output" | grep -o 'Mean_Time: [0-9.]*' | cut -d' ' -f2)
 
-    # Append results to CSV
-    echo "$mpi_tasks,$new_size,$runtime,$mean_time" >> $csv
+        echo "$size,$task,$runtime,$mean_time" >> $csv
+    done
+
+    rm -f "playground_${size}.pgm"
 done
 
 module purge

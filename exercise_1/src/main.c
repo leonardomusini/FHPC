@@ -5,13 +5,16 @@
 #include <omp.h>
 #include <getopt.h>
 #include <sys/time.h>
+#include <time.h>
 
-#include "read_write_pgm.h"
+#include "read_write_pgm_image.h"
 #include "init.h"
 #include "ordered.h"
 #include "static.h"
 
 #define MAX_FILENAME_LENGTH 256
+#define ALIVE 255
+#define DEAD 0
 
 #define INIT 1
 #define RUN 2
@@ -20,6 +23,7 @@
 #define STATIC 1
 
 int main(int argc, char *argv[]) {
+
     int action = 0;
     int k = K_DEFAULT;
     int e = ORDERED;
@@ -30,7 +34,7 @@ int main(int argc, char *argv[]) {
     char *optstring = "irk:e:f:n:s:";
     int c;
 
-    struct timeval start_time, end_time;
+    struct timespec start_time, end_time;
 
     while ((c = getopt(argc, argv, optstring)) != -1) {
         switch (c) {
@@ -57,95 +61,117 @@ int main(int argc, char *argv[]) {
             s = atoi(optarg);
             break;
         default:
-            if (rank == 0) {
-                fprintf(stderr, "Error: Unknown option -%c\n", c);
-            }
-            MPI_Finalize();
-            return EXIT_FAILURE;
+            printf("argument -%c not known\n", c ); break;
         }
     }
 
-    if (!fname) {
-        fname = (char *)malloc(MAX_FILENAME_LENGTH);
-        snprintf(fname, MAX_FILENAME_LENGTH, "game_of_life.pgm");
-    }
-
-    MPI_Init(&argc, &argv);
-
     int rank, size;
+    MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
+    // Initialization phase
     if (action == INIT) {
-        if (k <= 0 || fname[0] == '\0') {
-            if (rank == 0) {
-                fprintf(stderr, "Error: Invalid parameters for initialization.\n");
-            }
-            MPI_Finalize();
-            return EXIT_FAILURE;
-        }
 
-        unsigned char *playground = (unsigned char *)malloc(k * k * sizeof(unsigned char));
-        initialize_playground(playground, k, k);
-
+        unsigned char *playground = NULL;
         if (rank == 0) {
+            playground = (unsigned char *)malloc(k * k * sizeof(unsigned char));
+            initialize_playground(playground, k, k);
             write_pgm_image(playground, 255, k, k, fname);
             printf("Playground initialized and saved to %s\n", fname);
+            free(playground);
         }
-
-        free(playground);
+    // Evolution phase
     } else if (action == RUN) {
-        if (fname[0] == '\0' || n <= 0 || (e != ORDERED && e != STATIC)) {
+       // Differenciete between parallel and serial execution
+        if (size > 1) {
+
+            clock_gettime(CLOCK_MONOTONIC, &start_time);
+
+            unsigned char *playground = NULL;
+            int maxval, width, height;
+
             if (rank == 0) {
-                fprintf(stderr, "Error: Invalid parameters for running the playground.\n");
+                read_pgm_image((void **)&playground, &maxval, &width, &height, fname);
             }
-            MPI_Finalize();
-            return EXIT_FAILURE;
-        }
 
-        void *playground = NULL;
-        int maxval;
-        int width, height;
-        read_pgm_image(&playground, &maxval, &width, &height, fname);
-        if (!playground || width <= 0 || height <= 0) {
+            // Broadcasting
+            MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
+            MPI_Bcast(&s, 1, MPI_INT, 0, MPI_COMM_WORLD);
+            MPI_Bcast(&e, 1, MPI_INT, 0, MPI_COMM_WORLD);
+            MPI_Bcast(&width, 1, MPI_INT, 0, MPI_COMM_WORLD);
+            MPI_Bcast(&height, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+            // Calculate block sizes and displacements ---> DOMAIN DECOMPOSITION
+            int base_height = height / size;
+            int remainder = height % size;
+            int block_height = height / size + (rank < remainder);
+            unsigned char *local_playground = (unsigned char *)malloc(block_height * width * sizeof(unsigned char));
+            int *proc_counts = NULL, *displs = NULL;
+
             if (rank == 0) {
-                fprintf(stderr, "Error: Failed to read playground from %s\n", fname);
+                proc_counts = (int *)malloc(size * sizeof(int));
+                displs = (int *)malloc(size * sizeof(int));
+
+                for (int i = 0; i < size; i++) {
+                    proc_counts[i] = (i < remainder ? base_height + 1 : base_height) * width;
+                    displs[i] = (i == 0 ? 0 : displs[i - 1] + proc_counts[i - 1]);
+                }
             }
-            MPI_Finalize();
-            return EXIT_FAILURE;
-        }
 
-        int block_height = height / size + (rank < height % size);
-        unsigned char *local_playground = (unsigned char *)malloc(block_height * width * sizeof(unsigned char));
-        MPI_Scatterv(playground, block_height * width, MPI_UNSIGNED_CHAR, local_playground, block_height * width, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+            // Every process has its own part of the playground
+            MPI_Scatterv(playground, proc_counts, displs, MPI_UNSIGNED_CHAR, local_playground, block_height * width, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
 
-        gettimeofday(&start_time, NULL);
+            if (rank == 0) {
+                free(playground);
+            }
 
-        if (e == ORDERED) {
-            ordered_evolution(local_playground, width, height, block_height, n, s);
+            // Type of evolution
+            if (e == ORDERED) {
+                mpi_ordered_evolution(local_playground, width, height, block_height, n, s, rank, size, proc_counts, displs);
+            } else if (e == STATIC) {
+                mpi_static_evolution(local_playground, width, height, block_height, n, s, rank, size, proc_counts, displs);
+            }
+
+            clock_gettime(CLOCK_MONOTONIC, &end_time);
+
+            double runtime = (end_time.tv_sec - start_time.tv_sec) + (end_time.tv_nsec - start_time.tv_nsec) / 1e9;
+            double mean_time = runtime / n;
+
+            if (rank == 0) {
+                printf("Runtime: %f\n", runtime);
+                printf("Mean_Time: %f\n", mean_time);
+                free(proc_counts);
+                free(displs);
+            }
+
+            free(local_playground);
+
         } else {
-            static_evolution(local_playground, width, height, block_height, n, s);
-        }
+          
+            clock_gettime(CLOCK_MONOTONIC, &start_time);
 
-        gettimeofday(&end_time, NULL);
+            unsigned char *playground = NULL;
+            int maxval, width, height;
 
-        double runtime = (end_time.tv_sec - start_time.tv_sec) + (end_time.tv_usec - start_time.tv_usec) / 1e6;
-        double mean_time = runtime / n;
+            read_pgm_image((void **)&playground, &maxval, &width, &height, fname);
 
-        // Print runtime and mean_time to stdout
-        if (rank == 0) {
+            // Type of evolution
+            if (e == ORDERED) {
+                ordered_evolution(playground, width, height, n, s);
+            } else if (e == STATIC) {
+                static_evolution(playground, width, height, n, s);
+            }
+
+            clock_gettime(CLOCK_MONOTONIC, &end_time);
+
+            double runtime = (end_time.tv_sec - start_time.tv_sec) + (end_time.tv_nsec - start_time.tv_nsec) / 1e9;
+            double mean_time = runtime / n;
             printf("Runtime: %f\n", runtime);
             printf("Mean_Time: %f\n", mean_time);
-        }
 
-        free(local_playground);
-        if (rank == 0) free(playground);
-    } else {
-        if (rank == 0) {
-            fprintf(stderr, "Error: No action specified. Use -i or -r.\n");
+            free(playground);
         }
-        MPI_Finalize();
-        return EXIT_FAILURE;
     }
 
     if (fname) {

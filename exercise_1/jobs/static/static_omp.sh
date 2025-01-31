@@ -1,47 +1,56 @@
 #!/bin/bash
 #SBATCH --job-name=OMP_Scalability
 #SBATCH --partition=THIN
-#SBATCH --nodes=1                      # 1 node
-#SBATCH --ntasks-per-node=1            # 1 MPI task per socket
-#SBATCH --cpus-per-task=24             # Number of cores per socket
-#SBATCH --time=02:00:00                # Adjust based on your needs
-#SBATCH --output=OMP_scalability.out   # Output file
+#SBATCH --account=dssc
+#SBATCH --nodes=2                      
+#SBATCH --ntasks-per-node=2            
+#SBATCH --cpus-per-task=12             
+#SBATCH --time=02:00:00                
+#SBATCH --exclusive
+#SBATCH --output=OMP_scalability.out   
 
 module load openMPI/4.1.6/gnu/14.2.1
+
+exec_dir="/u/dssc/lmusini/FHPC/exercise_1"
+output_dir="$exec_dir/data/static"
+
+srun $exec_dir make clean
+srun  make -C $exec_dir 
+
+csv="$output_dir/static_omp_results.csv"
+echo "playground_size,mpi_task,threads,runtime,mean_time" > $csv
 
 # OpenMP settings
 export OMP_PLACES=cores
 export OMP_PROC_BIND=close
 
-# Matrix sizes to test
-matrix_sizes=(1000 5000 10000 25000)
-n=100            # Number of evolution steps
-s=0           # Snapshot frequency (set to 0 for no snapshots)
-e=1      # Evolution type: 1 for static, 0 for ordered
-
-# CSV output file
-csv="static_omp_results.csv"
-echo "matrix_size,threads,runtime,mean_time" > $csv
+playground_sizes=(1000 5000 10000)          # Playground sizes 
+n=50                                        # Number of evolution steps
+s=0                                         # Snapshot frequency (set to 0 for snapshot only at the end)
+e=1                                         # Evolution type: 0 for ordered, 1 for static
 
 # Loop over matrix sizes
-for size in "${matrix_sizes[@]}"; do
-    # Initialize the matrix
-    mpirun --map-by socket --bind-to socket -np 1 ./main.x -i -k $size -f "playground_${size}.pgm"
+for size in "${playground_sizes[@]}"; do
 
-    # Test with varying number of threads
-    for threads in $(seq 1 24); do
-        export OMP_NUM_THREADS=$threads
+    mpirun --map-by socket --bind-to socket -np 1 $exec_dir/main.x -i -k $size -f "playground_${size}.pgm"
 
-        # Capture output from the program
-        output=$(mpirun --map-by socket --bind-to socket -np 1 ./main.x -r -f "playground_${size}.pgm" -e $e -n $n -s $s)
+    # Loop over number of threads
+    for task in $(seq 1 4); do
+        for threads in $(seq 1 12); do
+            export OMP_NUM_THREADS=$threads
 
-        # Extract runtime and mean_time from the output
-        runtime=$(echo "$output" | grep -o 'Runtime: [0-9.]*' | cut -d' ' -f2)
-        mean_time=$(echo "$output" | grep -o 'Mean_Time: [0-9.]*' | cut -d' ' -f2)
+            for run in $(seq 1 5); do
+                output=$(mpirun --map-by socket --bind-to socket -np $task $exec_dir/main.x -r -f "playground_${size}.pgm" -e $e -n $n -s $s)
 
-        # Append to the CSV file
-        echo "$size,$threads,$runtime,$mean_time" >> $csv
+                runtime=$(echo "$output" | grep -o 'Runtime: [0-9.]*' | cut -d' ' -f2)
+                mean_time=$(echo "$output" | grep -o 'Mean_Time: [0-9.]*' | cut -d' ' -f2)
+
+                echo "$size,$task,$threads,$runtime,$mean_time" >> $csv
+            done
+        done
     done
+    rm -f "playground_${size}.pgm"
+
 done
 
 module purge
