@@ -16,7 +16,7 @@ srun $exec_dir make clean
 srun  make -C $exec_dir 
 
 csv="$output_dir/ordered_strongmpi_results.csv"
-echo "playground_size,mpi_task,runtime,mean_time" > $csv
+echo "playground_size,mpi_task,runtime" > $csv
 
 # OpenMP settings
 export OMP_PLACES=cores
@@ -40,14 +40,12 @@ for size in "${playground_sizes[@]}"; do
             output=$(mpirun --map-by node --bind-to core -np $task ./main.x -r -f "playground_${size}.pgm" -e $e -n $n -s $s)
 
             runtime=$(echo "$output" | grep -o 'Runtime: [0-9.]*' | cut -d' ' -f2)
-            mean_time=$(echo "$output" | grep -o 'Mean_Time: [0-9.]*' | cut -d' ' -f2)
 
-            echo "$size,$task,$runtime,$mean_time" >> $csv
+            echo "$size,$task,$runtime" >> $csv
         done
     done
 
     rm -f "playground_${size}.pgm"
 done
-
 
 module purge

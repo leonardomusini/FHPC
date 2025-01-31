@@ -53,4 +53,6 @@ for size in "${playground_sizes[@]}"; do
 
 done
 
+rm -f "playground_*.pgm"
+
 module purge
