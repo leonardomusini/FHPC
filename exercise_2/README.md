@@ -16,6 +16,10 @@ The structure of the directory is the following:
   - **`epyc/`** – Shell scripts for each thread affinity policy and scalability test on **EPYC** partition.
   - **`thin/`** – Shell scripts for each thread affinity policy and scalability test on **THIN** partition.
 
+- **`plot/`** – Scalability result plots in `.png` format.
+  - **`epyc/`** – Images from **EPYC** partition.
+  - **`thin/`** – Images from **THIN** partition.
+
 - **`Makefile`** – Compilation script for `gemm.c`: it will create several executables, one for each BLAS library and computation precision.
 
 - **`analysis.ipynb`** – Jupyter Notebook for **scalability analysis**.
