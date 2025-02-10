@@ -15,7 +15,7 @@ exec_dir="/u/dssc/lmusini/FHPC/exercise_1"
 output_dir="$exec_dir/data/ordered"
 
 srun $exec_dir make clean
-srun  make -C $exec_dir 
+srun make -C $exec_dir 
 
 csv="$output_dir/ordered_omp_results.csv"
 echo "playground_size,mpi_task,threads,runtime" > $csv

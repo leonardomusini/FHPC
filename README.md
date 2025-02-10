@@ -2,7 +2,7 @@
  
 This repository contains the solutions of the exam assignments of the course "Foundations of High Performance Computing" offered by Master's Degree in Data Science and Scientific Computing at the University of Trieste.
 
-Each folder contains its respective assignment and `report.pdf`includes the reports for both exercises.
+Each folder contains its respective assignment and `FHPC_report.pdf`includes the reports for both exercises.
 
 Some scripts in this repository are slightly modified versions of code from the official course [GitHub repository](https://github.com/Foundations-of-HPC/Foundations_of_HPC_2022/tree/main/Assignment).
 

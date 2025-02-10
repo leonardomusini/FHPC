@@ -37,6 +37,8 @@ void mpi_ordered_evolution(unsigned char *playground, int width, int height, int
         { 1,  1}  // Bottom-right
     };
 
+    MPI_Request requests[4];
+
     for (int step = 0; step < tot_steps; step++) {
         // Exchange halo rows with neighbors
         MPI_Irecv(halo_top, width, MPI_UNSIGNED_CHAR, neighbor_top, 0, MPI_COMM_WORLD, &requests[0]);

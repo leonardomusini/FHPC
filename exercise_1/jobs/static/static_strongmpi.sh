@@ -14,7 +14,7 @@ exec_dir="/u/dssc/lmusini/FHPC/exercise_1"
 output_dir="$exec_dir/data/static"
 
 srun $exec_dir make clean
-srun  make -C $exec_dir 
+srun make -C $exec_dir 
 
 csv="$output_dir/static_strongmpi_results.csv"
 echo "playground_size,mpi_task,runtime,mean_time" > $csv
